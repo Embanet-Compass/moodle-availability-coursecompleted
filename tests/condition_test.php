@@ -142,8 +142,40 @@ class availability_coursecompleted_condition_testcase extends advanced_testcase 
         $info = new \core_availability\mock_info();
         $completed = new condition((object)['type' => 'coursecompleted', 'id' => '1']);
         $information = $completed->get_description(true, false, $info);
+        $this->assertEquals($information, 'You completed this course.');
         $information = $completed->get_description(true, true, $info);
+        $this->assertEquals($information, 'You did <b>not</b> complete this course.');
         $information = $completed->get_standalone_description(true, false, $info);
+        $this->assertEquals($information, 'Not available unless: You completed this course.');
         $information = $completed->get_standalone_description(true, true, $info);
+        $this->assertEquals($information, 'Not available unless: You did <b>not</b> complete this course.');
+    }
+
+    /**
+     * Tests a page before and after completion.
+     */
+    public function test_page() {
+        global $CFG;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+
+        // Create course with coursecompleted turned on.
+        $CFG->enableavailability = true;
+        $generator = $this->getDataGenerator();
+        $course = $generator->create_course(['enablecompletion' => true]);
+        $user = $generator->create_user();
+        $generator->enrol_user($user->id, $course->id);
+        $page = $generator->get_plugin_generator('mod_page')->create_instance(['course' => $course]);
+        $modinfo = get_fast_modinfo($course);
+        $cm = $modinfo->get_cm($page->cmid);
+        $info = new \core_availability\info_module($cm);
+        $structure = (object)['type' => 'coursecompleted', 'id' => '1'];
+        $cond = new condition($structure);
+        $this->assertFalse($cond->is_available(false, $info, true, $user->id));
+        $this->assertFalse($cond->is_available(false, $info, false, $user->id));
+        $ccompletion = new completion_completion(['course' => $course->id, 'userid' => $user->id]);
+        $ccompletion->mark_complete();
+        $this->assertFalse($cond->is_available(true, $info, true, $user->id));
+        $this->assertFalse($cond->is_available(true, $info, false, $user->id));
     }
 }
