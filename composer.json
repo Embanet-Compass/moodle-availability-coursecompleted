@@ -1,9 +1,0 @@
-
-{
-    "name": "embanet-compass/moodle-availability-coursecompleted",
-    "type": "moodle-availability",
-    "description": "Availability Condition Plugin",
-    "extra": {
-        "installer-name": "coursecompleted",
-        "moodle": { "package_folder_name" : "coursecompleted" }
-    }
