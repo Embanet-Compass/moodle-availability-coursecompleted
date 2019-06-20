@@ -32,8 +32,9 @@ use availability_coursecompleted\condition;
  * @package   availability_coursecompleted
  * @copyright 2017 eWallah.net (info@eWallah.net)
  * @license   http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
+ * @coversDefaultClass availability_coursecompleted
  */
-class testcase extends advanced_testcase {
+class availability_coursecompleted_testcase extends advanced_testcase {
 
     /**
      * Load required classes.
@@ -48,42 +49,51 @@ class testcase extends advanced_testcase {
 
     /**
      * Tests constructing and using coursecompleted condition as part of tree.
+     * @covers availability_coursecompleted\condition
      */
     public function test_in_tree() {
-        global $CFG;
+        global $CFG, $USER;
         $this->resetAfterTest();
         $this->setAdminUser();
 
         // Create course with coursecompleted turned on.
         $CFG->enableavailability = true;
         $course = $this->getDataGenerator()->create_course(['enablecompletion' => true]);
-        $user = $this->getDataGenerator()->create_user();
-        $this->getDataGenerator()->enrol_user($user->id, $course->id);
-        $info = new \core_availability\mock_info($course, $user->id);
+        $userid = $this->getDataGenerator()->create_user()->id;
+        $this->getDataGenerator()->enrol_user($userid, $course->id);
+        $info = new \core_availability\mock_info($course, $userid);
 
         $structure1 = (object)['op' => '|', 'show' => true, 'c' => [(object)['type' => 'coursecompleted', 'id' => '1']]];
         $structure2 = (object)['op' => '|', 'show' => true, 'c' => [(object)['type' => 'coursecompleted', 'id' => '0']]];
         $tree1 = new \core_availability\tree($structure1);
         $tree2 = new \core_availability\tree($structure2);
 
-        // Initial check.
-        $result1 = $tree1->check_available(false, $info, true, $user->id);
-        $result2 = $tree2->check_available(false, $info, true, $user->id);
-        $this->assertFalse($result1->is_available());
-        $this->assertTrue($result2->is_available());
+        $this->assertFalse($tree1->check_available(false, $info, true, $USER->id)->is_available());
+        $this->assertTrue($tree2->check_available(false, $info, true, $USER->id)->is_available());
+        $this->assertFalse($tree1->check_available(false, $info, true, $userid)->is_available());
+        $this->assertTrue($tree2->check_available(false, $info, true, $userid)->is_available());
+
+        $this->setuser($userid);
+        $this->assertFalse($tree1->check_available(false, $info, true, $USER->id)->is_available());
+        $this->assertTrue($tree2->check_available(false, $info, true, $USER->id)->is_available());
+        $this->assertFalse($tree1->check_available(false, $info, true, $userid)->is_available());
+        $this->assertTrue($tree2->check_available(false, $info, true, $userid)->is_available());
 
         // Change course completed.
-        $ccompletion = new completion_completion(['course' => $course->id, 'userid' => $user->id]);
+        $this->setAdminUser();
+        $ccompletion = new completion_completion(['course' => $course->id, 'userid' => $userid]);
         $ccompletion->mark_complete();
 
-        $result1 = $tree1->check_available(false, $info, true, $user->id);
-        $result2 = $tree2->check_available(false, $info, true, $user->id);
-        $this->assertTrue($result1->is_available());
-        $this->assertFalse($result2->is_available());
+        $this->assertTrue($tree1->check_available(false, $info, true, $userid)->is_available());
+        $this->assertFalse($tree2->check_available(false, $info, true, $userid)->is_available());
+        $this->setuser($userid);
+        $this->assertTrue($tree1->check_available(false, $info, true, $userid)->is_available());
+        $this->assertFalse($tree2->check_available(false, $info, true, $userid)->is_available());
     }
 
     /**
      * Tests the constructor including error conditions.
+     * @covers availability_coursecompleted\condition
      */
     public function test_constructor() {
         // This works with no parameters.
@@ -128,6 +138,7 @@ class testcase extends advanced_testcase {
 
     /**
      * Tests the save() function.
+     * @covers availability_coursecompleted\condition
      */
     public function test_save() {
         $structure = (object)['id' => '1'];
@@ -138,10 +149,44 @@ class testcase extends advanced_testcase {
 
     /**
      * Tests the get_description and get_standalone_description functions.
+     * @covers availability_coursecompleted\condition
+     * @covers availability_coursecompleted\frontend
      */
     public function test_get_description() {
+        global $CFG;
+        $this->resetAfterTest();
+        $this->setAdminUser();
+        $CFG->enableavailability = true;
+        $userid = $this->getDataGenerator()->create_user()->id;
+        $course = $this->getDataGenerator()->create_course(['enablecompletion' => true]);
+        $modinfo = get_fast_modinfo($course);
+        $sections = $modinfo->get_section_info_all();
+
+        $frontend = new availability_coursecompleted\frontend();
+        $class = new ReflectionClass('availability_coursecompleted\frontend');
+        $method = $class->getMethod('get_javascript_strings');
+        $method->setAccessible(true);
+        $this->assertEquals([], $method->invokeArgs($frontend, []));
+        $method = $class->getMethod('get_javascript_init_params');
+        $method->setAccessible(true);
+        $this->assertEquals(0, count($method->invokeArgs($frontend, [$course])));
+        $method = $class->getMethod('allow_add');
+        $method->setAccessible(true);
+        $this->assertTrue($method->invokeArgs($frontend, [$course, null, null]));
+        $this->assertFalse($method->invokeArgs($frontend, [$course, null, $sections[0]]));
+        $this->assertTrue($method->invokeArgs($frontend, [$course, null, $sections[1]]));
+
         $info = new \core_availability\mock_info();
         $completed = new condition((object)['type' => 'coursecompleted', 'id' => '1']);
+        $information = $completed->get_description(true, false, $info);
+        $this->assertEquals($information, 'You completed this course.');
+        $information = $completed->get_description(true, true, $info);
+        $this->assertEquals($information, 'You did <b>not</b> complete this course.');
+        $information = $completed->get_standalone_description(true, false, $info);
+        $this->assertEquals($information, 'Not available unless: You completed this course.');
+        $information = $completed->get_standalone_description(true, true, $info);
+        $this->assertEquals($information, 'Not available unless: You did <b>not</b> complete this course.');
+        $this->setuser($userid);
         $information = $completed->get_description(true, false, $info);
         $this->assertEquals($information, 'You completed this course.');
         $information = $completed->get_description(true, true, $info);
@@ -154,6 +199,7 @@ class testcase extends advanced_testcase {
 
     /**
      * Tests a page before and after completion.
+     * @covers availability_coursecompleted\condition
      */
     public function test_page() {
         global $CFG, $PAGE;
@@ -189,11 +235,13 @@ class testcase extends advanced_testcase {
         $this->assertFalse($cond->is_available_for_all());
         $this->assertFalse($cond->update_dependency_id(null, 1, 2));
         $this->assertEquals($cond->__toString(), '{coursecompleted:False}');
-        $this->assertEquals($cond->get_standalone_description(true, true, $info), 'Not available unless: ');
+        $this->assertEquals($cond->get_standalone_description(true, true, $info),
+            'Not available unless: You completed this course.');
     }
 
     /**
      * Tests using course completion condition in front end.
+     * @covers availability_coursecompleted\condition
      */
     public function test_other() {
         global $CFG;
@@ -202,10 +250,13 @@ class testcase extends advanced_testcase {
         $CFG->enableavailability = true;
         $condition = \availability_coursecompleted\condition::get_json('3');
         $this->assertEquals($condition, (object)['type' => 'coursecompleted', 'id' => '3']);
+        $condition = \availability_coursecompleted\condition::get_json('0');
+        $this->assertEquals($condition, (object)['type' => 'coursecompleted', 'id' => '0']);
     }
 
     /**
      * Test privacy.
+     * @covers availability_coursecompleted\privacy\provider
      */
     public function test_privacy() {
         $privacy = new availability_coursecompleted\privacy\provider();
